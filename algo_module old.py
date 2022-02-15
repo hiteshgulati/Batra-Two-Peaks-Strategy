@@ -231,8 +231,8 @@ class Data_guy:
     @keep_log()
     def set_parameters(self, broker, trader, underlying_name,
                  events_and_actions = None,
-                 current_datetime=None,
-                 options_step_size = 50) -> None:
+                 current_datetime=None, \
+                 candle_length=None) -> None:
         """Set parameters of Broker Object
 
         Args:
@@ -267,14 +267,28 @@ class Data_guy:
         self.events_and_actions = events_and_actions
 
         self.underlying_name = underlying_name.upper()
-        self.options_step_size = options_step_size
         
         #Get expiry datetime provided by Data Broker
         self.expiry_datetime = self.broker.get_next_expiry_datetime(
             self.underlying_name) 
         self.is_expiry_day = False
+        if self.expiry_datetime.date() == self.current_datetime.date(): self.is_expiry_day = True
         
-        
+        self.candle_length = candle_length
+
+        self.candle_t_2 = {'start_datetime':None,
+                            'end_datetime':None,
+                            'open':None,
+                            'high':None,
+                            'low':None,
+                            'close':None}
+
+        self.candle_t_1 = {'start_datetime':None,
+                            'end_datetime':None,
+                            'open':None,
+                            'high':None,
+                            'low':None,
+                            'close':None}
 
         self.is_broker_working = True
         
@@ -300,10 +314,6 @@ class Data_guy:
 
         self.current_datetime = current_datetime
         self.is_broker_working = True
-        if self.expiry_datetime.date() == self.current_datetime.date(): 
-            self.is_expiry_day = True
-        else:
-            self.is_expiry_day = False
 
         # Fetch strategy pnl and brokerage/trader fee
         
@@ -330,7 +340,9 @@ class Data_guy:
             self.current_ltp = ltp
         else:
             self.is_broker_working = False
-
+        #update candles
+        self.candle_t_2 = self.candle(t_minus=2,candle_type='fixed')
+        self.candle_t_1 = self.candle(t_minus=1,candle_type='fixed')
 
         #Update data dataframe
         self.data_df = self.data_df.append({
@@ -343,15 +355,29 @@ class Data_guy:
             'trailing_pnl': self.trailing_pnl,
             'current_ltp': self.current_ltp, \
             'expiry_datetime': self.expiry_datetime, \
-            'entry_ltp': self.events_and_actions.entry_ltp, \
+            'current_position': self.events_and_actions.current_position, \
+            'straddle_strike': self.events_and_actions.straddle_strike, \
+            'strangle_strike_low': self.events_and_actions.strangle_strike_low, \
+            'strangle_strike_high': self.events_and_actions.strangle_strike_high, \
+            'position_entry_ltp': self.events_and_actions.position_entry_ltp, \
+            'is_hedged': self.events_and_actions.is_hedged, \
             'is_closed': self.events_and_actions.is_closed,
             'is_expiry_day':self.is_expiry_day,\
+            'candle_t_2_start':self.candle_t_2['start_datetime'],\
+            'candle_t_2_end':self.candle_t_2['end_datetime'],\
+            'candle_t_2_open':self.candle_t_2['open'],\
+            'candle_t_2_close':self.candle_t_2['close'],\
+            'candle_t_1_start':self.candle_t_1['start_datetime'],\
+            'candle_t_1_end':self.candle_t_1['end_datetime'],\
+            'candle_t_1_open':self.candle_t_1['open'],
+            'candle_t_1_close':self.candle_t_1['close'],
             'is_broker_working':self.is_broker_working}, \
             ignore_index=True)
         #save data_df
         self.data_df.to_csv(self.data_df_store_path, index=False)
-        return True
 
+
+        return True
 
     @keep_log()
     def get_atm_strike(self) -> int:
@@ -360,8 +386,89 @@ class Data_guy:
         Returns:
             int: ATM Strike based on underlying LTP
         """        
-        atm_strike = self.options_step_size * round(self.current_ltp / self.options_step_size)
+        atm_strike = 50 * round(self.current_ltp / 50)
         return atm_strike
+
+    @keep_log(default_return = {'start_datetime':None,
+                            'end_datetime':None,
+                            'open':None,
+                            'high':None,
+                            'low':None,
+                            'close':None})
+    def candle(self,t_minus=1, candle_type = 'dynamic') -> float:
+        """Returns OHLC Candle.
+            Candle type can be of two types:
+            1) dynamic: Candle length is from current time,
+                        For Eg is the candle length is 5 minutes and time is 9:28AM
+                        t_minus 1 will refer to candle 9:23 - 9:28
+                        t_minus 2 will refer to candle 9:18 - 9:23
+
+            2) fixed:   Fixed candle length is used,
+                        For Eg is the candle length is 5 minutes and time is 9:28AM
+                        t_minus 1 will refer to candle 9:20 - 9:25
+                        t_minus 2 will refer to candle 9:15 - 9:20
+
+        Args:
+            t_minus (int, optional): t_minus historical candle. Defaults to 1.
+            candle_type (str, optional): dynamic/fixed. Defaults to 'dynamic'.
+
+        Returns:
+            dict: candle_dict - 
+                {'start_datetime': datetime, 
+                'end_datetime': datetime,
+                'open': float,
+                'high': float,
+                'low': float,
+                'close': float}
+        """        
+
+        if len(self.data_df) == 0:
+            return {'start_datetime':None,
+                            'end_datetime':None,
+                            'open':None,
+                            'high':None,
+                            'low':None,
+                            'close':None}
+
+        end_datetime = self.current_datetime + \
+            timedelta(minutes=(\
+                self.candle_length*(t_minus-1)*-1)\
+                )
+
+        #calculate fixed length end time
+        if candle_type == 'fixed':
+            end_datetime = end_datetime - \
+            (end_datetime - datetime.min) \
+                % timedelta(minutes=\
+                    self.candle_length)
+
+        start_datetime = end_datetime - \
+            timedelta(minutes=self.candle_length)
+
+        #slice data_df for required candle period
+        candle_df = self.data_df[(self.data_df['current_datetime'] >= start_datetime) \
+                                    & (self.data_df['current_datetime'] <= end_datetime)] \
+                                ['current_ltp']
+        
+        candle_close = None
+        candle_open = None
+        candle_high = None
+        candle_low = None
+
+        if len(candle_df) >= 2:
+            candle_close = candle_df.iloc[-1]
+            candle_open = candle_df.iloc[0]
+            candle_high = candle_df.max()
+            candle_low = candle_df.min()
+
+        candle_dict = {'start_datetime':start_datetime,
+            'end_datetime':end_datetime,
+            'open':candle_open,
+            'high':candle_high,
+            'low':candle_low,
+            'close':candle_close}
+
+        return candle_dict
 
 
     @keep_log()
@@ -463,7 +570,6 @@ class Data_guy:
 
         return df
 
-   
 
 class Events_and_actions:
     """
@@ -515,16 +621,15 @@ class Events_and_actions:
     
     
     @keep_log()
-    def set_parameters(self, data_guy, trader, broker, \
-                 entry_datetime, exit_datetime, \
-                 ltp_to_position_distance = 500,
-                 underlying_max_movement = 700,
-                 total_loss_limit=-10_000, trade_quantity=50, \
-                 trailing_loss_trigger_point=5_000, \
-                 trailing_loss_limit=-500,
-                 big_jump=timedelta(minutes=5),
-                 small_jump=timedelta(seconds=.1),
-                 is_jumping = False) -> None:
+    def set_parameters(self, data_guy, trader, \
+                 begin_time=datetime(2020, 1, 1, 9, 28).time(), \
+                 close_time=datetime(2020, 1, 1, 15, 7).time(), \
+                 total_loss_limit=-1_000, trade_quantity=50, \
+                 trailing_loss_trigger=1_500, \
+                 max_trailing_loss_non_expiry=-250,
+                 max_trailing_loss_expiry=-200,
+                 non_expiry_day_no_candle_time = datetime(2020, 1, 1, 14, 30).time(),
+                 expiry_day_no_candle_time = datetime(2020, 1, 1, 13, 0).time()) -> None:
         """Set parameters for the 
             events_and_actions object
 
@@ -587,32 +692,25 @@ class Events_and_actions:
                 on expiry day. 
                 Defaults to datetime(2020, 1, 1, 13, 0).time().
         """                
-        
-        self.is_positioned = False
+        self.is_hedged = False
+        self.current_position = None
+        self.straddle_strike = None
+        self.strangle_strike_high = None
+        self.strangle_strike_low = None
         self.is_closed = False
+        self.begin_time = begin_time
+        self.close_time = close_time
         self.position_entry_ltp = None
-        self.ltp_to_position_distance = ltp_to_position_distance
-        self.underlying_max_movement = underlying_max_movement
-        self.entry_datetime = entry_datetime
-        self.exit_datetime = exit_datetime
         self.total_loss_limit = total_loss_limit
-        self.trailing_loss_trigger_point = trailing_loss_trigger_point
-        self.trailing_loss_limit = trailing_loss_limit
         self.trade_quantity = trade_quantity
-        self.sell_strike_low = None
-        self.sell_strike_high = None
-        self.buy_strike_low = None
-        self.buy_strike_high = None
-        self.big_jump = big_jump
-        self.small_jump = small_jump
-        self.jump_size = big_jump
-        self.is_jumping = is_jumping
-
-
+        self.trailing_loss_trigger = trailing_loss_trigger
+        self.max_trailing_loss_non_expiry = max_trailing_loss_non_expiry
+        self.non_expiry_day_no_candle_time = non_expiry_day_no_candle_time
+        self.expiry_day_no_candle_time = expiry_day_no_candle_time
+        self.max_trailing_loss_expiry = max_trailing_loss_expiry
         self.orderbook = pd.DataFrame()
         self.data_guy = data_guy
         self.trader = trader
-        self.broker = broker
 
 
     @keep_log()
@@ -672,162 +770,281 @@ class Events_and_actions:
         14) event_non_expiry_day_open_shop() -> action_non_expiry_day_buy_hedge()
         """        
 
+        logger1.log(at='start',
+            is_closed=self.is_closed,
+            is_hedged=self.is_hedged,
+            current_position = self.current_position,
+            straddle_strike=self.straddle_strike,
+            strangle_strike_high = self.strangle_strike_high,
+            strangle_strike_low = self.strangle_strike_low)
+
         if self.data_guy.is_broker_working:
             if self.event_total_loss_reached():
+                self.action_close_the_day(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time
+                )
+            elif self.event_non_expiry_day_trailing_loss_reached():
+                self.action_close_the_day(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time
+                )
+            elif self.event_expiry_day_trailing_loss_reached():
+                self.action_close_the_day(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time
+                )
+            elif self.event_shop_close_time():
+                self.action_close_the_day(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time
+                )
+            elif self.event_exit_straddle():
                 self.action_exit_position(
                     current_datetime=current_datetime,
                     initiation_time=initiation_time
                 )
-            elif self.event_underlying_movement_exceeded():
+            elif self.event_exit_strangle():
                 self.action_exit_position(
                     current_datetime=current_datetime,
                     initiation_time=initiation_time
                 )
-            elif self.event_trailing_loss_reached():
-                self.action_exit_position(
+            elif self.event_expiry_day_enter_position_no_candle_call_first():
+                self.action_enter_position_call_first(
                     current_datetime=current_datetime,
                     initiation_time=initiation_time
                 )
-            elif self.event_expiry_day_itm_exit():
-                self.action_exit_position(
+            elif self.event_expiry_day_enter_position_no_candle_put_first():
+                self.action_enter_position_put_first(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time)
+            elif self.event_non_expiry_day_enter_position_no_candle_call_first():
+                self.action_enter_position_call_first(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time)
+            elif self.event_non_expiry_day_enter_position_no_candle_put_first():
+                self.action_enter_position_put_first(
                     current_datetime=current_datetime,
                     initiation_time=initiation_time
                 )
-            elif self.event_expiry_day_time_exit():
-                self.action_exit_position(
+            elif self.event_enter_position_call_first():
+                self.action_enter_position_call_first(
                     current_datetime=current_datetime,
                     initiation_time=initiation_time
                 )
-            elif self.event_enter_position():
-                self.action_enter_position(
+            elif self.event_enter_position_put_first():
+                self.action_enter_position_put_first(
                     current_datetime=current_datetime,
                     initiation_time=initiation_time
                 )
-            
-            pass
+            elif self.event_expiry_day_open_shop():
+                self.action_expiry_day_buy_hedge(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time)
+            elif self.event_non_expiry_day_open_shop():
+                self.action_non_expiry_day_buy_hedge(
+                    current_datetime=current_datetime,
+                    initiation_time=initiation_time)
 
-    
-    @keep_log()
-    def set_jump_size (self) -> timedelta:
-        
-        if self.is_positioned & (not self.is_closed):
-            if (self.data_guy.current_pnl - self.data_guy.total_loss_limit) / self.total_loss_limit <= .25:
-                self.jump_size = self.small_jump
-            elif abs(self.data_guy.current_ltp - self.position_entry_ltp) / self.position_entry_ltp >= .02:
-                self.jump_size = self.small_jump
-            elif self.data_guy.max_pnl >= self.trailing_loss_trigger_point:
-                if (self.data_guy.trailing_pnl - self.trailing_loss_limit) / self.trailing_loss_limit <= .5:
-                    self.jump_size = self.small_jump
-        
-        return self.jump_size
-    
+        logger1.log(at='end',
+            is_closed=self.is_closed,
+            is_hedged=self.is_hedged,
+            current_position = self.current_position,
+            straddle_strike=self.straddle_strike,
+            strangle_strike_high = self.strangle_strike_high,
+            strangle_strike_low = self.strangle_strike_low)
+
 
     @keep_log()
-    def event_total_loss_reached (self) -> boolean:
+    def set_jump_size (self):
+        pass
+
+    @keep_log()
+    def event_expiry_day_open_shop(self) -> boolean:
         output = False
-        if self.is_positioned & (not self.is_closed):
-            if self.total_loss_limit <= self.data_guy.current_pnl:
+        if (self.data_guy.is_expiry_day) & (not self.is_closed) & (not self.is_hedged):
+            if self.data_guy.current_datetime.time() >= self.begin_time:
                 output = True
+
         return output
 
-
     @keep_log()
-    def event_underlying_movement_exceeded (self) -> boolean:
+    def event_non_expiry_day_open_shop(self) -> boolean:
+
         output = False
-        if self.is_positioned & (not self.is_closed):
-            if abs(self.data_guy.current_ltp - self.entry_ltp) >= \
-                abs(self.underlying_max_movement * self.position_entry_ltp):
+        if (not self.data_guy.is_expiry_day) & (not self.is_closed) & (not self.is_hedged):
+            if self.data_guy.current_datetime.time() >= self.begin_time:
                 output = True
+
         return output
 
-
     @keep_log()
-    def event_expiry_day_time_exit (self) -> boolean:
+    def event_enter_position_call_first(self) -> boolean:
         output = False
-        if self.is_positioned & (not self.is_closed):
-            if self.data_guy.current_datetime >= self.data_guy.exit_datetime:
-                output = True 
+        if (not self.is_closed) & self.is_hedged & (self.current_position is None):
+            if self.data_guy.candle_t_2['open'] is not None and self.data_guy.candle_t_2['close'] is not None:
+                if abs(self.data_guy.candle_t_2['open'] - self.data_guy.candle_t_2['close']) < 15:
+                    if self.data_guy.candle_t_1['open'] is not None and self.data_guy.candle_t_1['close'] is not None:
+                        if abs(self.data_guy.candle_t_1['open'] - self.data_guy.candle_t_1['close']) < 15:
+                            if abs(self.data_guy.candle_t_1['close']-self.data_guy.current_ltp) < 5:
+                                if self.data_guy.current_ltp >= self.data_guy.get_atm_strike():
+                                    output = True
+
         return output
 
+    @keep_log()
+    def event_enter_position_put_first(self) -> boolean:
+
+        output = False
+
+        if (not self.is_closed) & self.is_hedged & (self.current_position is None):
+            if self.data_guy.candle_t_2['open'] is not None and self.data_guy.candle_t_2['close'] is not None:
+                if abs(self.data_guy.candle_t_2['open'] - self.data_guy.candle_t_2['close']) < 15:
+                    if self.data_guy.candle_t_1['open'] is not None and self.data_guy.candle_t_1['close'] is not None:
+                        if abs(self.data_guy.candle_t_1['open'] - self.data_guy.candle_t_1['close']) < 15:
+                            if abs(self.data_guy.candle_t_1['close']-self.data_guy.current_ltp) < 5:
+                                if self.data_guy.current_ltp < self.data_guy.get_atm_strike():
+                                    output = True
+        return output
 
     @keep_log()
-    def event_expiry_day_itm_exit (self) -> boolean:
+    def event_exit_straddle(self) -> boolean:
+
         output = False
-        if self.is_positioned & (not self.is_closed):
-            if self.data_guy.is_expiry_day:
-                if (self.data_guy.current_ltp >= self.sell_strike_high) | (self.data_guy.current_ltp <= self.sell_strike_low):
+        if self.current_position == 'straddle':
+            if abs(self.data_guy.current_ltp - self.position_entry_ltp) > 10:
+                ltp_minus_strike = self.data_guy.current_ltp - self.straddle_strike
+                if ltp_minus_strike < -27 or ltp_minus_strike > 27:
                     output = True
         return output
 
 
     @keep_log()
-    def event_trailing_loss_reached (self) -> boolean:
+    def event_exit_strangle(self) -> boolean:
         output = False
-        if self.is_positioned & (not self.is_closed):
-            if self.data_guy.max_pnl >= self.trailing_loss_trigger_point:
-                if self.data_guy.trailing_pnl <= self.trailing_loss_limit:
+        if self.current_position == 'strangle':
+            if abs(self.data_guy.current_ltp - self.position_entry_ltp) > 10:
+                ltp_minus_high_strike = self.data_guy.current_ltp - self.strangle_strike_high
+                ltp_minus_low_strike = self.data_guy.current_ltp - self.strangle_strike_low
+                if ltp_minus_high_strike < -52 or ltp_minus_low_strike > 52:
                     output = True
         return output
 
 
     @keep_log()
-    def event_enter_position (self) -> boolean:
+    def event_expiry_day_enter_position_no_candle_call_first(self) -> boolean:
         output = False
-        if (not self.is_positioned) & (not self.is_closed):
-            if self.data_guy.current_datetime >= self.entry_datetime:
+        if (not self.is_closed) & self.is_hedged & (self.current_position is None):
+            if (self.data_guy.is_expiry_day) & (
+                    self.data_guy.current_datetime.time() >= self.expiry_day_no_candle_time):
+                if self.data_guy.current_ltp >= self.data_guy.get_atm_strike():
+                    output = True
+        return output
+
+
+    @keep_log()
+    def event_expiry_day_enter_position_no_candle_put_first(self) -> boolean:
+
+        output = False
+        if (not self.is_closed) & self.is_hedged & (self.current_position == None):
+            if (self.data_guy.is_expiry_day) & (
+                    self.data_guy.current_datetime.time() >= self.expiry_day_no_candle_time):
+                if self.data_guy.current_ltp < self.data_guy.get_atm_strike():
+                    output = True
+
+        return output
+
+
+    @keep_log()
+    def event_non_expiry_day_enter_position_no_candle_call_first(self) -> boolean:
+
+        output = False
+        if (not self.is_closed) & self.is_hedged & (self.current_position is None):
+            if (not self.data_guy.is_expiry_day) & (
+                    self.data_guy.current_datetime.time() >= self.non_expiry_day_no_candle_time):
+                if self.data_guy.current_ltp >= self.data_guy.get_atm_strike():
+                    output = True
+
+        return output
+
+
+    @keep_log()
+    def event_non_expiry_day_enter_position_no_candle_put_first(self) -> boolean:
+
+        output = False
+
+        if (not self.is_closed) & self.is_hedged & (self.current_position is None):
+            if (not self.data_guy.is_expiry_day) & (
+                    self.data_guy.current_datetime.time() >= self.non_expiry_day_no_candle_time):
+                if self.data_guy.current_ltp < self.data_guy.get_atm_strike():
+                    output = True
+        return output
+
+
+    @keep_log()
+    def event_total_loss_reached(self) -> boolean:
+        output = False
+        if not self.is_closed:
+            if self.data_guy.current_pnl < self.total_loss_limit:
                 output = True
         return output
+
+    @keep_log()
+    def event_shop_close_time(self) -> boolean:
+        output = False
+        if not self.is_closed:
+            if self.data_guy.current_datetime.time() >= self.close_time:
+                output = True
+        return output
+
+
+    @keep_log()
+    def event_non_expiry_day_trailing_loss_reached(self) -> boolean:
+
+        output = False
+        if not self.is_closed and not self.data_guy.is_expiry_day:
+            if (self.data_guy.max_pnl >= self.trailing_loss_trigger) & (
+                    self.data_guy.trailing_pnl <= self.max_trailing_loss_non_expiry):
+                output = True
+
+        return output
+
+
+    @keep_log()
+    def event_expiry_day_trailing_loss_reached(self) -> boolean:
+
+            output = False
+            if not self.is_closed and self.data_guy.is_expiry_day:
+                if (self.data_guy.max_pnl >= self.trailing_loss_trigger) & \
+                    (self.data_guy.trailing_pnl <= self.max_trailing_loss_expiry):
+                    output = True
+            return output
 
 
     @keep_log(level='warning')
-    def action_enter_position (self, current_datetime, initiation_time) -> boolean:
+    def action_expiry_day_buy_hedge(self,
+                current_datetime, 
+                initiation_time) -> boolean:
+        """
+        Buy hedges
+        Expiry Day: Buy ₹ 3 Call and ₹ 3 Put
+        Non Expiry Day: Buy ₹ 5 Call and ₹ 5 Put
+
+        Returns:
+            boolean: True if corresponding trade is successful 
+        """        
+
         output = False
 
-        atm_strike = self.data_guy.get_atm_strike()
-
-        sell_strike_high = atm_strike * (1+self.ltp_to_position_distance)
-        sell_strike_low = atm_strike * (1-self.ltp_to_position_distance)
-
-        self.sell_strike_high = self.data_guy.options_step_size * \
-                round(sell_strike_high / self.data_guy.options_step_size)
-        self.sell_strike_low = self.data_guy.options_step_size * \
-                round(sell_strike_low / self.data_guy.options_step_size)
-
-        fno_df = pd.DataFrame({
-            'underlying': [self.data_guy.underlying_name,self.data_guy.underlying_name],
-            'call_put': ['CE','PE'],
-            'expiry_datetime': [self.data_guy.expiry_datetime,self.data_guy.expiry_datetime],
-            'strike': [self.sell_strike_high, self.sell_strike_low]})
-
-        #Get instrument id for trade broker of all options
-        fno_df['instrument_id_trade'] = self.broker.get_multiple_fno_instrument_id( \
-            fno_df=fno_df, broker_for='trade')
-
-        #Get instrument id for data broker of all options
-        fno_df['instrument_id_data'] = self.broker.get_multiple_fno_instrument_id( \
-            fno_df=fno_df, broker_for='data')
-
-        #Get LTP of all options
-        instrument_ltp = self.broker.get_multiple_ltp(
-                instruments_df=fno_df, exchange='NFO',
-                current_datetime=current_datetime,
-                initiation_time=initiation_time)
-        
-        if instrument_ltp is not None:
-            fno_df['instrument_ltp'] = instrument_ltp
-
-        sell_strike_high_ltp = fno_df[fno_df['call_put']=='CE']['instrument_ltp'].iloc[0]
-        sell_strike_low_ltp = fno_df[fno_df['call_put']=='CE']['instrument_ltp'].iloc[0]
-
-        self.buy_strike_high, _ = self.trader.strike_discovery(
-                        underlying=self.data_guy.underlying_name,
-                        call_put='CE', expiry_datetime=self.data_guy.expiry_datetime,
-                        based_on_value='price', value=sell_strike_high_ltp,
-                        current_datetime=current_datetime,
-                        initiation_time=initiation_time)
-
+        #identify strike of ₹ 3 Call
+        strike, _ = self.trader.strike_discovery(underlying=self.data_guy.underlying_name,
+                                                    call_put='CE', expiry_datetime=self.data_guy.expiry_datetime,
+                                                    based_on_value='price', value=3,
+                                                    current_datetime=current_datetime,
+                                                    initiation_time=initiation_time)
+        #Add the discovered option in orderbook
         order = {'order_id': str(datetime.now()), \
-                    'strike': self.buy_strike_high, \
+                    'strike': strike, \
                     'underlying': self.data_guy.underlying_name, \
                     'call_put': 'CE', \
                     'expiry_datetime': self.data_guy.expiry_datetime, \
@@ -835,69 +1052,299 @@ class Events_and_actions:
                     'buy_sell': 'buy'}
         self.orderbook = self.orderbook.append(order, ignore_index=True)
 
-
-        self.buy_strike_low, _ = self.trader.strike_discovery(
-                        underlying=self.data_guy.underlying_name,
-                        call_put='PE', expiry_datetime=self.data_guy.expiry_datetime,
-                        based_on_value='price', value=sell_strike_low_ltp,
-                        current_datetime=current_datetime,
-                        initiation_time=initiation_time)
-
+        #identify strike of ₹ 3 Put
+        strike, _ = self.trader.strike_discovery(underlying=self.data_guy.underlying_name,
+                                                    call_put='PE', expiry_datetime=self.data_guy.expiry_datetime,
+                                                    based_on_value='price', value=3,
+                                                    current_datetime=current_datetime,
+                                                    initiation_time=initiation_time)
+        #Add the discovered option in orderbook
         order = {'order_id': str(datetime.now()), \
-                    'strike': self.buy_strike_low, \
+                    'strike': strike, \
                     'underlying': self.data_guy.underlying_name, \
                     'call_put': 'PE', \
                     'expiry_datetime': self.data_guy.expiry_datetime, \
-                    'quantity': self.trade_quantity, \
+                    'quantity': self.trade_quantity,
                     'buy_sell': 'buy'}
         self.orderbook = self.orderbook.append(order, ignore_index=True)
-        
-        order = {'order_id': str(datetime.now()), \
-                    'strike': self.sell_strike_high, \
-                    'underlying': self.data_guy.underlying_name, \
-                    'call_put': 'CE', \
-                    'expiry_datetime': self.data_guy.expiry_datetime, \
-                    'quantity': self.trade_quantity * 2, \
-                    'buy_sell': 'sell'}
-        self.orderbook = self.orderbook.append(order, ignore_index=True)
-
-        order = {'order_id': str(datetime.now()), \
-                    'strike': self.sell_strike_low, \
-                    'underlying': self.data_guy.underlying_name, \
-                    'call_put': 'PE', \
-                    'expiry_datetime': self.data_guy.expiry_datetime, \
-                    'quantity': self.trade_quantity * 2, \
-                    'buy_sell': 'sell'}
-        self.orderbook = self.orderbook.append(order, ignore_index=True)
-
 
         #Call trader to execute orders in the orderbook
         orders_executed = self.trader.place_order_in_orderbook(\
             current_datetime=current_datetime,
             initiation_time=initiation_time)
 
-        #Check if orders are executed
         if orders_executed:
             #Update Variable to indicate change in state
-            self.position_entry_ltp = self.data_guy.current_ltp
-            self.is_positioned = True
+            self.is_hedged = True
+            output = True
 
         return output
 
 
     @keep_log(level='warning')
-    def action_exit_position (self, current_datetime,initiation_time) -> boolean:
-        output = False
+    def action_non_expiry_day_buy_hedge(self,
+        current_datetime, initiation_time) -> boolean:
+        """
+        Buy hedges
+        Expiry Day: Buy ₹ 3 Call and ₹ 3 Put
+        Non Expiry Day: Buy ₹ 5 Call and ₹ 5 Put
 
+        Returns:
+            boolean: True if corresponding trade is successful 
+        """    
+
+        output = False
+        #identify strike of ₹ 5 Call
+        strike, _ = self.trader.strike_discovery(underlying=self.data_guy.underlying_name,
+                                                    call_put='CE', expiry_datetime=self.data_guy.expiry_datetime,
+                                                    based_on_value='price', value=5,
+                                                    current_datetime=current_datetime,
+                                                    initiation_time=initiation_time)
+        #Add the discovered option in orderbook
+        order = {'order_id': str(datetime.now()), 'strike': strike, 'underlying': self.data_guy.underlying_name,
+                    'call_put': 'CE', 'expiry_datetime': self.data_guy.expiry_datetime,
+                    'quantity': self.trade_quantity,
+                    'buy_sell': 'buy'}
+        self.orderbook = self.orderbook.append(order, ignore_index=True)
+
+        #identify strike of ₹ 5 Put
+        strike, _ = self.trader.strike_discovery(underlying=self.data_guy.underlying_name,
+                                                    call_put='PE', expiry_datetime=self.data_guy.expiry_datetime,
+                                                    based_on_value='price', value=5,
+                                                    current_datetime=current_datetime,
+                                                    initiation_time=initiation_time)
+        #Add the discovered option in orderbook
+        order = {'order_id': str(datetime.now()), 'strike': strike, 'underlying': self.data_guy.underlying_name,
+                    'call_put': 'PE', 'expiry_datetime': self.data_guy.expiry_datetime,
+                    'quantity': self.trade_quantity,
+                    'buy_sell': 'buy'}
+        self.orderbook = self.orderbook.append(order, ignore_index=True)
+
+        #Call trader to execute orders in the orderbook
+        orders_executed = self.trader.place_order_in_orderbook(\
+            current_datetime=current_datetime,
+            initiation_time=initiation_time)
+
+        if orders_executed:
+            #Update Variable to indicate change in state
+            self.is_hedged = True
+            output = True
+        
+        return output
+
+    @keep_log(level='warning')
+    def action_enter_position_put_first(self,
+            current_datetime, initiation_time) -> boolean:
+        """
+        Enter Straddle/Strangle position
+        Step 1) Sell Put with delta close to .5
+        Step 2) Sell Call with price closest to Put
+
+        Returns:
+            boolean: True if all corresponding trades are successful
+        """        
+
+        output = False
+        #Identify Put with delta close to .5
+        strike_put, instrument_ltp = self.trader.strike_discovery(underlying=self.data_guy.underlying_name,
+                                                                    call_put='PE',
+                                                                    expiry_datetime=self.data_guy.expiry_datetime,
+                                                                    based_on_value='delta', value=-.5,
+                                                                    current_datetime=current_datetime,
+                                                                    initiation_time=initiation_time)
+        #Add the discovered option in orderbook
+        order = {'order_id': str(datetime.now()), 'strike': strike_put, 'underlying': self.data_guy.underlying_name,
+                    'call_put': 'PE', 'expiry_datetime': self.data_guy.expiry_datetime,
+                    'quantity': self.trade_quantity,
+                    'buy_sell': 'sell'}
+        self.orderbook = self.orderbook.append(order, ignore_index=True)
+
+        #Identify Call with price close to Put
+        strike_call, _ = self.trader.strike_discovery(underlying=self.data_guy.underlying_name,
+                                                        call_put='CE', expiry_datetime=self.data_guy.expiry_datetime,
+                                                        based_on_value='price', value=instrument_ltp,
+                                                        current_datetime=current_datetime,
+                                                        initiation_time=initiation_time)
+        #Add the discovered option in orderbook
+        order = {'order_id': str(datetime.now()), 'strike': strike_call,
+                    'underlying': self.data_guy.underlying_name,
+                    'call_put': 'CE', 'expiry_datetime': self.data_guy.expiry_datetime,
+                    'quantity': self.trade_quantity,
+                    'buy_sell': 'sell'}
+        self.orderbook = self.orderbook.append(order, ignore_index=True)
+
+        #Call trader to execute orders in the orderbook
+        orders_executed = self.trader.place_order_in_orderbook(\
+            current_datetime=current_datetime,
+            initiation_time=initiation_time)
+
+        if orders_executed:
+            #Update Variable to indicate change in state
+            self.position_entry_ltp = self.data_guy.current_ltp
+            if strike_put == strike_call:
+                self.current_position = 'straddle'
+                self.straddle_strike = strike_put
+            else:
+                self.current_position = 'strangle'
+                if strike_put >= strike_call:
+                    self.strangle_strike_high = strike_put
+                    self.strangle_strike_low = strike_call
+                else:
+                    self.strangle_strike_high = strike_call
+                    self.strangle_strike_low = strike_put
+            output = True
+        return output
+
+    @keep_log(level='warning')
+    def action_enter_position_call_first(self,
+            current_datetime, initiation_time) -> boolean:
+        """
+        Enter Straddle/Strangle position
+        Step 1) Sell Put with delta close to .5
+        Step 2) Sell Call with price closest to Put
+
+        Returns:
+            boolean: True if all corresponding trades are successful
+        """  
+        output = False
+        #Identify Call with delta close to .5
+        strike_call, instrument_ltp = self.trader.strike_discovery( \
+            underlying=self.data_guy.underlying_name,
+            call_put='CE', expiry_datetime=self.data_guy.expiry_datetime,
+            based_on_value='delta', value=.5,
+            current_datetime=current_datetime,
+            initiation_time=initiation_time)
+        
+        #Add the discovered option in orderbook
+        order = {'order_id': str(datetime.now()),
+                    'strike': strike_call,
+                    'underlying': self.data_guy.underlying_name,
+                    'call_put': 'CE',
+                    'expiry_datetime': self.data_guy.expiry_datetime,
+                    'quantity': self.trade_quantity,
+                    'buy_sell': 'sell'}
+        self.orderbook = self.orderbook.append(order, ignore_index=True)
+
+        #Identify Put with price close to Call
+        strike_put, _ = self.trader.strike_discovery( \
+            underlying=self.data_guy.underlying_name,
+            call_put='PE', expiry_datetime=self.data_guy.expiry_datetime,
+            based_on_value='price', value=instrument_ltp,
+            current_datetime=current_datetime,
+            initiation_time=initiation_time)
+        
+        #Add the discovered option in orderbook
+        order = {'order_id': str(datetime.now()),
+                    'strike': strike_put,
+                    'underlying': self.data_guy.underlying_name,
+                    'call_put': 'PE',
+                    'expiry_datetime': self.data_guy.expiry_datetime,
+                    'quantity': self.trade_quantity,
+                    'buy_sell': 'sell'}
+        self.orderbook = self.orderbook.append(order, ignore_index=True)
+
+        #Call trader to execute orders in the orderbook
+        orders_executed = self.trader.place_order_in_orderbook(
+            current_datetime=current_datetime,
+            initiation_time=initiation_time
+        )
+
+        if orders_executed:
+            #Update Variable to indicate change in state
+            self.position_entry_ltp = self.data_guy.current_ltp
+            if strike_put == strike_call:
+                self.current_position = 'straddle'
+                self.straddle_strike = strike_put
+            else:
+                self.current_position = 'strangle'
+                if strike_put >= strike_call:
+                    self.strangle_strike_high = strike_put
+                    self.strangle_strike_low = strike_call
+                else:
+                    self.strangle_strike_high = strike_call
+                    self.strangle_strike_low = strike_put
+            output = True
+
+            return output
+
+
+    @keep_log(level='warning')
+    def action_exit_position(self,
+        current_datetime, initiation_time) -> boolean:
+        """Exit current position
+
+        Returns:
+            boolean: True if all corresponding trades are successful
+        """        
+
+        output = False
+        current_position = self.trader.get_positions(current_datetime = current_datetime)
+
+        if current_position is None:
+            raise Exception("No Reply from Broker")
+
+        #Exit only sell positions thus filter out all quantities bought
+        current_position = current_position[ \
+            current_position['quantity'] < 0]
+
+        #Loop through current positions and add each to orderbook
+        for _, each_leg in current_position.iterrows():
+            instrument_id = str(each_leg['instrument_id_trade'])
+            quantity = abs(each_leg['quantity'])
+            exchange = each_leg['exchange']
+            if each_leg['quantity'] < 0:
+                buy_sell = 'buy'
+            elif each_leg['quantity'] > 0:
+                buy_sell = 'sell'
+
+            order = {'order_id': str(datetime.now()),
+                        'instrument_id_trade': instrument_id,
+                        'quantity': quantity,
+                        'buy_sell': buy_sell,
+                        'exchange': exchange}
+
+            self.orderbook = self.orderbook.append(order, ignore_index=True)
+        
+        #Call trader to execute orders in the orderbook
+        orders_executed = self.trader.place_order_in_orderbook(
+            instrument_id_available=True,
+            current_datetime=current_datetime,
+            initiation_time=initiation_time)
+
+        if orders_executed:
+            #Update Variable to indicate change in state
+            self.current_position = None
+            self.straddle_strike = None
+            self.strangle_strike_high = None
+            self.strangle_strike_low = None
+            self.position_entry_ltp = None
+            output = True
+
+        return output
+
+    @keep_log(level='warning')
+    def action_close_the_day(self,
+        current_datetime, initiation_time) -> boolean:
+        """Close the day and square off all positions
+
+        Returns:
+            boolean: True if all corresponding trades are successful
+        """        
+
+        output = False
+        #Get all current positions
         current_position = self.trader.get_positions(current_datetime = current_datetime)
 
         if current_position is None:
             raise Exception("No Reply from Broker")
         
         if len(current_position) != 0:
-            #Filter out already closed positions
-            current_position = current_position.sort_values(by='quantity')
 
+            #Filter out already closed positions
+            current_position = current_position[ \
+                current_position['quantity'] != 0]\
+                    .sort_values(by='quantity')
+                
             #Loop through current positions and add each to orderbook
             for _, each_leg in current_position.iterrows():
                 instrument_id = str(each_leg['instrument_id_trade'])
@@ -924,17 +1371,16 @@ class Events_and_actions:
 
         if orders_executed:
             #Update Variable to indicate change in state
-            self.sell_strike_high = None
-            self.sell_strike_low = None
-            self.buy_strike_high = None
-            self.buy_strike_low = None
+            self.current_position = None
+            self.straddle_strike = None
+            self.strangle_strike_high = None
+            self.strangle_strike_low = None
             self.position_entry_ltp = None
-            self.is_positioned = False
+            self.is_hedged = False
             self.is_closed = True
             output = True
 
         return output
-
 
 
 class Trader:

@@ -164,7 +164,8 @@ class Broker:
                 kotak_consumer_key=None, kotak_access_token=None,
                 kotak_consumer_secret=None,kotak_user_id=None,
                 kotak_access_code=None, kotak_user_password=None,
-                logger=None, current_datetime=None) -> None:
+                logger=None, current_datetime=None, 
+                end_datetime = None) -> None:
         """Set Parameters for broker object
 
         Variables used by Broker object:
@@ -215,6 +216,7 @@ class Broker:
             current_datetime (datetime.datetime, optional): Current Datetime of simulation. Defaults to None.
         """            
         if current_datetime is None: current_datetime = datetime.now()
+        if end_datetime is None: end_datetime = current_datetime
         global logger1
         #Assign logger if not done while initializing object
         if logger1 is None: logger1 = logger
@@ -233,7 +235,7 @@ class Broker:
 
         #Instruments Book contains all 
         #   available instruments in the market 
-        #   and its correspoing details like: 
+        #   and its corresponding details like: 
         #   instrument id, expiry datetime
         self.kite_instruments_book = None
         self.kotak_instruments_book = None
@@ -241,6 +243,7 @@ class Broker:
         #Set market broker object for Trade Broker
         self.set_broker_object(broker_name=self.broker_for_trade,
                             current_datetime=current_datetime,
+                            end_datetime = end_datetime,
                             kite_api_key = kite_api_key,
                             kite_access_token=kite_access_token,
                             kotak_access_code=kotak_access_code,
@@ -260,6 +263,7 @@ class Broker:
         if self.broker_for_data != self.broker_for_trade:
             self.set_broker_object(broker_name=self.broker_for_data,
                             current_datetime=current_datetime,
+                            end_datetime = end_datetime,
                             kite_api_key = kite_api_key,
                             kite_access_token=kite_access_token,
                             kotak_access_code=kotak_access_code,
@@ -297,6 +301,7 @@ class Broker:
                             fno_folder_name = None,
                             equity_folder_name = None,
                             current_datetime = None,
+                            end_datetime = None,
                             kite_api_key=None, kite_access_token=None,
                             kotak_consumer_key=None, kotak_access_token=None,
                             kotak_consumer_secret=None,kotak_user_id=None,
@@ -388,6 +393,7 @@ class Broker:
             self.sim = Exchange()
             
             self.sim.set_parameters(current_datetime=current_datetime,
+                end_datetime = end_datetime,
                 underlying_name = underlying_name,
                 historical_data_folder_name=historical_data_folder_name,
                 fno_folder_name=fno_folder_name,
@@ -397,9 +403,7 @@ class Broker:
 
         elif broker_name == 'PAPER':
             return True
-        elif broker_name == 'BACKTEST':
-            ## INITIALIZE BACKTESTING OBJECT HERE
-            return True
+
 
 
     @keep_log()
@@ -1130,7 +1134,8 @@ class Exchange:
 
 
     def set_parameters (self,current_datetime, 
-            historical_data_folder_name, underlying_name,
+            end_datetime,underlying_name,
+            historical_data_folder_name, 
             fno_folder_name,equity_folder_name,
             exchange_connection_loss = None):
         
@@ -1140,6 +1145,7 @@ class Exchange:
         self.connection_loss = exchange_connection_loss
         
         self.prepare_data_book(current_datetime=current_datetime,
+            end_datetime = end_datetime,
             historical_data_folder_name=historical_data_folder_name,
             fno_folder_name=fno_folder_name,
             equity_folder_name=equity_folder_name)
@@ -1148,6 +1154,7 @@ class Exchange:
     @connection_loss(default_return=False)
     @keep_log(default_return=False)
     def prepare_data_book(self,current_datetime,
+            end_datetime,
             historical_data_folder_name,
             fno_folder_name='FNO',
             equity_folder_name="Equity") -> Boolean:
@@ -1158,7 +1165,13 @@ class Exchange:
         #      - fno_folder_name
         #      - equity_folder_name
 
-        current_datestring = current_datetime.strftime("%Y-%m-%d")
+        delta = timedelta(days=1)
+        start_date = current_datetime.date()
+        datestring_list = []
+        while start_date <= end_datetime.date():
+            print(start_date)
+            datestring_list.append(start_date.strftime("%Y-%m-%d"))
+            start_date += delta
         
         parent = os.path.dirname(os.getcwd())
 
@@ -1171,7 +1184,7 @@ class Exchange:
             os.path.join(fno_data_folder_path,f) \
             for f in os.listdir(fno_data_folder_path) \
                 if os.path.isfile(os.path.join(fno_data_folder_path,f)) \
-                    & (f.split(".")[0].split("_")[0]==current_datestring)\
+                    & (f.split(".")[0].split("_")[0] in datestring_list)\
                         ]
 
         equity_data_folder_path = os.path.join(\
@@ -1180,7 +1193,7 @@ class Exchange:
             os.path.join(equity_data_folder_path,f) \
             for f in os.listdir(equity_data_folder_path) \
                 if os.path.isfile(os.path.join(equity_data_folder_path,f)) \
-                    & (f.split(".")[0].split("_")[0]==current_datestring)\
+                    & (f.split(".")[0].split("_")[0] in datestring_list)\
                         ]
 
         data_file_paths = fno_file_paths
