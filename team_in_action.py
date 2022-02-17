@@ -92,7 +92,7 @@ def execute_algo (**kwargs):
         if current_datetime.time() > datetime(2021,5,17,15,30).time():
             current_datetime = current_datetime + timedelta (hours=17,minutes=40)
         initiation_time = perf_counter()
-        algo_manager.action(current_datetime=current_datetime,
+        jump_size = algo_manager.action(current_datetime=current_datetime,
             initiation_time = initiation_time)
 
         print(current_datetime.strftime('%Y-%b-%d>%I:%M:%S %p, %a                '),
@@ -106,8 +106,8 @@ def execute_algo (**kwargs):
             current_datetime = current_datetime \
                 + timedelta(\
                     seconds=(slippage+\
-                        kwargs['pause_between_iterations'])
-                )
+                    kwargs['pause_between_iterations']))\
+                + jump_size
         else: 
             sleep(kwargs['pause_between_iterations'])
             current_datetime = datetime.now()
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     #For Simulation
     day_start_datetime = datetime(2021,5,17,9,15)
     entry_datetime = datetime(2021,5,17,15,15).time()
-    exit_datetime = datetime(2021,5,19,15,20).time()
+    exit_datetime = datetime(2021,5,20,15,20).time()
     switch_off_time =    datetime(2021,5,19,15,27).time()
 
     # For Live Paper trade

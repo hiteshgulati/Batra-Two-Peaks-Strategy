@@ -743,7 +743,7 @@ class Events_and_actions:
     def event_expiry_day_time_exit (self) -> boolean:
         output = False
         if self.is_positioned & (not self.is_closed):
-            if self.data_guy.current_datetime >= self.data_guy.exit_datetime:
+            if self.data_guy.current_datetime >= (self.data_guy.expiry_datetime - timedelta(minutes=20)):
                 output = True 
         return output
 
