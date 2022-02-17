@@ -164,8 +164,7 @@ class Broker:
                 kotak_consumer_key=None, kotak_access_token=None,
                 kotak_consumer_secret=None,kotak_user_id=None,
                 kotak_access_code=None, kotak_user_password=None,
-                logger=None, current_datetime=None, 
-                end_datetime = None) -> None:
+                logger=None, current_datetime=None) -> None:
         """Set Parameters for broker object
 
         Variables used by Broker object:
@@ -216,7 +215,6 @@ class Broker:
             current_datetime (datetime.datetime, optional): Current Datetime of simulation. Defaults to None.
         """            
         if current_datetime is None: current_datetime = datetime.now()
-        if end_datetime is None: end_datetime = current_datetime
         global logger1
         #Assign logger if not done while initializing object
         if logger1 is None: logger1 = logger
@@ -243,7 +241,6 @@ class Broker:
         #Set market broker object for Trade Broker
         self.set_broker_object(broker_name=self.broker_for_trade,
                             current_datetime=current_datetime,
-                            end_datetime = end_datetime,
                             kite_api_key = kite_api_key,
                             kite_access_token=kite_access_token,
                             kotak_access_code=kotak_access_code,
@@ -263,7 +260,6 @@ class Broker:
         if self.broker_for_data != self.broker_for_trade:
             self.set_broker_object(broker_name=self.broker_for_data,
                             current_datetime=current_datetime,
-                            end_datetime = end_datetime,
                             kite_api_key = kite_api_key,
                             kite_access_token=kite_access_token,
                             kotak_access_code=kotak_access_code,
@@ -301,7 +297,6 @@ class Broker:
                             fno_folder_name = None,
                             equity_folder_name = None,
                             current_datetime = None,
-                            end_datetime = None,
                             kite_api_key=None, kite_access_token=None,
                             kotak_consumer_key=None, kotak_access_token=None,
                             kotak_consumer_secret=None,kotak_user_id=None,
@@ -393,7 +388,6 @@ class Broker:
             self.sim = Exchange()
             
             self.sim.set_parameters(current_datetime=current_datetime,
-                end_datetime = end_datetime,
                 underlying_name = underlying_name,
                 historical_data_folder_name=historical_data_folder_name,
                 fno_folder_name=fno_folder_name,
@@ -1133,8 +1127,8 @@ class Exchange:
         pass
 
 
-    def set_parameters (self,current_datetime, 
-            end_datetime,underlying_name,
+    def set_parameters (self,current_datetime,
+            underlying_name,
             historical_data_folder_name, 
             fno_folder_name,equity_folder_name,
             exchange_connection_loss = None):
@@ -1145,7 +1139,6 @@ class Exchange:
         self.connection_loss = exchange_connection_loss
         
         self.prepare_data_book(current_datetime=current_datetime,
-            end_datetime = end_datetime,
             historical_data_folder_name=historical_data_folder_name,
             fno_folder_name=fno_folder_name,
             equity_folder_name=equity_folder_name)
@@ -1154,7 +1147,6 @@ class Exchange:
     @connection_loss(default_return=False)
     @keep_log(default_return=False)
     def prepare_data_book(self,current_datetime,
-            end_datetime,
             historical_data_folder_name,
             fno_folder_name='FNO',
             equity_folder_name="Equity") -> Boolean:
@@ -1165,67 +1157,116 @@ class Exchange:
         #      - fno_folder_name
         #      - equity_folder_name
 
-        delta = timedelta(days=1)
-        start_date = current_datetime.date()
-        datestring_list = []
-        while start_date <= end_datetime.date():
-            print(start_date)
-            datestring_list.append(start_date.strftime("%Y-%m-%d"))
-            start_date += delta
-        
+        ltp_to_position_distance = .3
+
+
         parent = os.path.dirname(os.getcwd())
 
         historical_data_folder_path = os.path.join(\
                 parent,historical_data_folder_name)
-        
+
         fno_data_folder_path = os.path.join(\
                 historical_data_folder_path,fno_folder_name)
-        fno_file_paths = [\
-            os.path.join(fno_data_folder_path,f) \
-            for f in os.listdir(fno_data_folder_path) \
-                if os.path.isfile(os.path.join(fno_data_folder_path,f)) \
-                    & (f.split(".")[0].split("_")[0] in datestring_list)\
-                        ]
 
         equity_data_folder_path = os.path.join(\
             historical_data_folder_path,equity_folder_name)
+
+        first_day_string = current_datetime.strftime("%Y-%m-%d")
+        first_fno_file_path = fno_file_paths = [\
+                os.path.join(fno_data_folder_path,f) \
+                for f in os.listdir(fno_data_folder_path) \
+                    if os.path.isfile(os.path.join(fno_data_folder_path,f)) \
+                        & (f.split(".")[0].split("_")[0] == first_day_string)\
+                            ]
+
+        first_fno_df = pd.read_csv(first_fno_file_path[0])
+        
+        end_datetime = pd.to_datetime(first_fno_df['expiry_date']).min() + timedelta (hours=15, minutes =30)
+        del(first_fno_df)
+
+        delta = timedelta(days=1)
+        start_date = current_datetime.date()
+        datestring_list = []
+        while start_date <= end_datetime.date():
+            datestring_list.append(start_date.strftime("%Y-%m-%d"))
+            start_date += delta
+
+
+
+        fno_file_paths = [\
+                os.path.join(fno_data_folder_path,f) \
+                for f in os.listdir(fno_data_folder_path) \
+                    if os.path.isfile(os.path.join(fno_data_folder_path,f)) \
+                        & (f.split(".")[0].split("_")[0] in datestring_list)\
+                            ]
+        fno_file_paths.sort()
+
         equity_file_paths = [\
             os.path.join(equity_data_folder_path,f) \
             for f in os.listdir(equity_data_folder_path) \
                 if os.path.isfile(os.path.join(equity_data_folder_path,f)) \
                     & (f.split(".")[0].split("_")[0] in datestring_list)\
                         ]
+        equity_file_paths.sort()
 
-        data_file_paths = fno_file_paths
-        data_file_paths.extend(equity_file_paths)
-        self.tick_book = pd.concat(map(pd.read_csv,data_file_paths))
+        equity_book = pd.read_csv(equity_file_paths[0])
+        equity_book.rename(columns={'Ticker':'ticker',
+                                'LTP':'ltp',
+                                'BuyPrice':'buy_price',
+                                'SellPrice':'sell_price'},
+                                inplace=True)
+        equity_book = equity_book[['ticker','ltp','timestamp']]
 
-        self.tick_book.rename(columns={'Ticker':'ticker',
-                        'LTP':'ltp',
-                        'BuyPrice':'buy_price',
-                        'SellPrice':'sell_price'},
-                        inplace=True)
+        equity_book['timestamp'] = pd.to_datetime(\
+                        equity_book['timestamp'])
 
-        self.tick_book = self.tick_book[['ticker','ltp','buy_price',\
-                    'sell_price','underlying','strike','call_put',\
-                    'expiry_date','timestamp']]
-        self.tick_book = self.tick_book[\
-            (self.tick_book['underlying']==self.underlying_name) | \
-            (self.tick_book['underlying'].isnull())]
-        self.tick_book['expiry_datetime'] = pd.to_datetime(\
-                    self.tick_book['expiry_date']) + \
-                        timedelta (hours=15, minutes =30)
-        self.tick_book['timestamp'] = pd.to_datetime(\
-                    self.tick_book['timestamp'])
-        df_group = self.tick_book.groupby(['ticker','timestamp'])
-        self.tick_book['duplicate_serial'] = df_group[['ltp']].cumcount()
-        self.tick_book['duplicate_count'] = df_group['ltp'].transform('size')
-        del df_group
-        self.tick_book['duplicate_fraction'] = \
-            pd.to_timedelta(self.tick_book['duplicate_serial'] \
-                / self.tick_book['duplicate_count'], unit='s')
-        self.tick_book['timestamp'] = self.tick_book['timestamp'] \
-                    + self.tick_book['duplicate_fraction']
+        start_datetime_ltp = equity_book[(equity_book['timestamp']==current_datetime)]['ltp'].iloc[0]
+        strike_high = start_datetime_ltp * (1+ltp_to_position_distance)
+        strike_low = start_datetime_ltp * (1-ltp_to_position_distance)
+        del(equity_book)
+
+        self.tick_book = pd.DataFrame()
+        for equity_file_path, fno_file_path in zip (equity_file_paths,fno_file_paths):
+            print(fno_file_path)
+            day_tick_book = pd.concat(map(pd.read_csv,[fno_file_path,equity_file_path]))
+
+
+            day_tick_book.rename(columns={'Ticker':'ticker',
+                                    'LTP':'ltp',
+                                    'BuyPrice':'buy_price',
+                                    'SellPrice':'sell_price'},
+                                    inplace=True)
+
+            day_tick_book = day_tick_book[['ticker','ltp','buy_price',\
+                                'sell_price','underlying','strike','call_put',\
+                                'expiry_date','timestamp']]
+
+
+            day_tick_book = day_tick_book[\
+                        (day_tick_book['underlying']==self.underlying_name) | \
+                        (day_tick_book['underlying'].isnull())]
+
+            day_tick_book['expiry_datetime'] = pd.to_datetime(\
+                                day_tick_book['expiry_date']) + \
+                                    timedelta (hours=15, minutes =30)
+
+            day_tick_book['timestamp'] = pd.to_datetime(\
+                            day_tick_book['timestamp'])
+            day_tick_book = day_tick_book[day_tick_book['timestamp']>=current_datetime]
+
+            day_tick_book.sort_values(by=['ticker','timestamp'],inplace=True)
+
+            day_tick_book.drop_duplicates(subset=['ticker','timestamp'],keep='first',inplace=True)
+
+            day_tick_book = day_tick_book[(day_tick_book['expiry_datetime'] == day_tick_book['expiry_datetime'].min()) | \
+                                (day_tick_book['expiry_datetime'].isnull())]
+
+            day_tick_book = day_tick_book[((day_tick_book['strike']>=strike_low) & (day_tick_book['strike']<=strike_high)) |\
+                            (day_tick_book['strike'].isnull())]
+
+            self.tick_book = pd.concat([self.tick_book,day_tick_book])
+
+
         
         self.instruments_book = self.tick_book[['ticker','underlying',\
                     'strike','call_put','expiry_datetime']]
@@ -1234,8 +1275,7 @@ class Exchange:
                     'sell_price','underlying','strike','call_put',\
                     'timestamp']]
         self.instruments_book.drop_duplicates(inplace=True)
-        # self.tick_book.to_csv(current_datetime.strftime("interim_df/%Y-%m-%d Tick.csv"), index=False)
-        # self.instruments_book.to_csv(current_datetime.strftime("interim_df/%Y-%m-%d Instruments.csv"), index=False)
+
         return True
 
 
