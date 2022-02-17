@@ -1,5 +1,6 @@
 from xmlrpc.client import Boolean
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import kiteconnect
 from kiteconnect import KiteConnect
@@ -1120,6 +1121,32 @@ class Broker:
         #Always return True for Paper trade as orders are not punched
         elif self.broker_for_trade == 'PAPER':
             return True
+
+    
+    @keep_log(default_return = True)
+    def is_active_day(self,current_datetime):
+        if self.broker_for_data == 'ZERODHA':
+            return True
+        elif self.broker_for_data == 'KOTAK':
+            return True
+        elif self.broker_for_data == 'SIM':
+            output = current_datetime.date() in self.sim.active_dates
+            return output
+    
+    
+    @keep_log(default_return = timedelta(seconds=0))
+    def get_next_active_day(self,current_datetime):
+        if self.broker_for_data == 'ZERODHA':
+            return current_datetime
+        elif self.broker_for_data == 'KOTAK':
+            return current_datetime
+        elif self.broker_for_data == 'SIM':
+            next_date = self.sim.active_dates[\
+                np.where(self.sim.active_dates>=current_datetime)][0]
+            return next_date
+
+    
+
             
 
 class Exchange:
@@ -1142,6 +1169,9 @@ class Exchange:
             historical_data_folder_name=historical_data_folder_name,
             fno_folder_name=fno_folder_name,
             equity_folder_name=equity_folder_name)
+
+        self.active_dates = self.tick_book.timestamp.dt.date.unique()
+        self.active_dates.sort()
         
     
     @connection_loss(default_return=False)

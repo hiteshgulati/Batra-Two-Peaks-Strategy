@@ -62,17 +62,19 @@ def execute_algo (**kwargs):
         current_datetime = current_datetime,
         broker_connection_loss = kwargs['broker_connection_loss'],
         exchange_connection_loss = kwargs['exchange_connection_loss'],
-        begin_time=kwargs['trading_start_time'],
-        close_time=kwargs['trading_close_time'],
+        entry_datetime=kwargs['entry_datetime'],
+        exit_datetime=kwargs['exit_datetime'],
         quantity_per_lot = 50,
+        options_step_size = 50,
+        big_jump = timedelta(minutes=5),
+        small_jump = timedelta(seconds=.1),
+        is_jumping = kwargs['is_jumping'],
+        ltp_to_position_distance = .3,
+        underlying_max_movement = .5,
         lots_traded = kwargs['lots_traded'],
-        total_loss_limit_per_lot = -1_500,
-        max_trailing_loss_non_expiry_per_lot = -250,
-        max_trailing_loss_expiry_per_lot = -200,
-        trailing_loss_trigger_per_lot = 1_500,
-        non_expiry_day_no_candle_time = kwargs['non_expiry_day_no_candle_time'],
-        expiry_day_no_candle_time = kwargs['expiry_day_no_candle_time'],
-        candle_length=kwargs['candle_length'],
+        total_loss_limit_per_lot = -10_000,
+        trailing_loss_limit_per_lot = -500,
+        trailing_loss_trigger_point_per_lot = 5_000,
         historical_data_folder_name = kwargs['historical_data_folder_name'],
         fno_folder_name = kwargs['fno_folder_name'],
         equity_folder_name = kwargs['equity_folder_name']
@@ -87,6 +89,8 @@ def execute_algo (**kwargs):
         current_datetime = datetime.now()
 
     while current_datetime.time() <= kwargs['switch_off_time']:
+        if current_datetime.time() > datetime(2021,5,17,15,30).time():
+            current_datetime = current_datetime + timedelta (hours=17,minutes=40)
         initiation_time = perf_counter()
         algo_manager.action(current_datetime=current_datetime,
             initiation_time = initiation_time)
@@ -122,18 +126,12 @@ def execute_algo (**kwargs):
 
 
 if __name__ == '__main__':
-    
-    #For Live Trading
-    # day_start_datetime = None
-    # trading_start_time = datetime(2020,1,1,9,58).time()
-    # trading_close_time = datetime(2020,1,1,15,7).time()
-    # switch_off_time = datetime(2020,1,1,15,10,0).time()
 
     #For Simulation
     day_start_datetime = datetime(2021,5,17,9,15)
-    trading_start_time = datetime(2021,5,17,9,20).time()
-    trading_close_time = datetime(2021,5,17,13,30).time()
-    switch_off_time =    datetime(2021,5,17,13,37).time()
+    entry_datetime = datetime(2021,5,17,15,15).time()
+    exit_datetime = datetime(2021,5,19,15,20).time()
+    switch_off_time =    datetime(2021,5,19,15,27).time()
 
     # For Live Paper trade
     # day_start_datetime = None
@@ -141,9 +139,6 @@ if __name__ == '__main__':
     # trading_close_time = datetime(2020,1,1,15,7).time()
     # switch_off_time =    datetime(2020,1,1,15,10).time()
 
-    # non_expiry_day_no_candle_time = datetime(2020, 1, 1, 9, 15).time()
-    non_expiry_day_no_candle_time = datetime(2020, 1, 1, 14, 30).time()
-    expiry_day_no_candle_time = datetime(2020, 1, 1, 13, 0).time()
 
     is_kite_access_token_available = False
     kite_request_token='9ssq7Xyih3uC16rtS23BdiO6wZr5cj5c'
@@ -160,20 +155,20 @@ if __name__ == '__main__':
     broker_for_trade = 'paper'
     broker_for_data = 'sim'
 
-    pause_between_iterations = .7 
+    pause_between_iterations = .1 
 
     broker_connection_loss = None
     exchange_connection_loss = None
 
 
-    broker_connection_loss = [{'start_datetime':datetime(2021,5,17,9,16),
-                                'end_datetime':datetime(2021,5,17,9,18)},
-                            {'start_datetime':datetime(2021,5,17,9,21),
-                            'end_datetime':datetime(2021,5,17,9,32)},
-                            {'start_datetime':datetime(2021,5,17,10,22),
-                            'end_datetime':datetime(2021,5,17,10,23)},
-                            {'start_datetime':datetime(2021,5,17,11,32),
-                            'end_datetime':datetime(2021,5,17,12,50)}]
+    # broker_connection_loss = [{'start_datetime':datetime(2021,5,17,9,16),
+    #                             'end_datetime':datetime(2021,5,17,9,18)},
+    #                         {'start_datetime':datetime(2021,5,17,9,21),
+    #                         'end_datetime':datetime(2021,5,17,9,32)},
+    #                         {'start_datetime':datetime(2021,5,17,10,22),
+    #                         'end_datetime':datetime(2021,5,17,10,23)},
+    #                         {'start_datetime':datetime(2021,5,17,11,32),
+    #                         'end_datetime':datetime(2021,5,17,12,50)}]
 
     
 
@@ -182,16 +177,13 @@ if __name__ == '__main__':
     equity_folder_name = 'Equity'
 
     execute_algo (day_start_datetime=day_start_datetime,
-        trading_start_time=trading_start_time,
-        trading_close_time = trading_close_time,
+        trading_start_time=entry_datetime,
+        trading_close_time = exit_datetime,
         switch_off_time = switch_off_time,
-        non_expiry_day_no_candle_time = non_expiry_day_no_candle_time,
-        expiry_day_no_candle_time = expiry_day_no_candle_time,
         is_kite_access_token_available = is_kite_access_token_available,
         kite_request_token = kite_request_token,
         broker_secret_file_name = broker_secret_file_name,
         log_folder_name = log_folder_name,
-        candle_length = candle_length,
         per_trade_fee = per_trade_fee,
         lots_traded = lots_traded,
         broker_for_trade = broker_for_trade,
@@ -202,4 +194,5 @@ if __name__ == '__main__':
         fno_folder_name = fno_folder_name,
         equity_folder_name = equity_folder_name,
         broker_connection_loss = broker_connection_loss,
-        exchange_connection_loss = exchange_connection_loss)
+        exchange_connection_loss = exchange_connection_loss,
+        is_jumping = False)

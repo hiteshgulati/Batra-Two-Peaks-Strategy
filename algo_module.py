@@ -517,14 +517,13 @@ class Events_and_actions:
     @keep_log()
     def set_parameters(self, data_guy, trader, broker, \
                  entry_datetime, exit_datetime, \
-                 ltp_to_position_distance = 500,
-                 underlying_max_movement = 700,
+                 ltp_to_position_distance = .3,
+                 underlying_max_movement = .5,
                  total_loss_limit=-10_000, trade_quantity=50, \
                  trailing_loss_trigger_point=5_000, \
                  trailing_loss_limit=-500,
                  big_jump=timedelta(minutes=5),
-                 small_jump=timedelta(seconds=.1),
-                 is_jumping = False) -> None:
+                 small_jump=timedelta(seconds=.1)) -> None:
         """Set parameters for the 
             events_and_actions object
 
@@ -606,7 +605,7 @@ class Events_and_actions:
         self.big_jump = big_jump
         self.small_jump = small_jump
         self.jump_size = big_jump
-        self.is_jumping = is_jumping
+
 
 
         self.orderbook = pd.DataFrame()
@@ -625,25 +624,17 @@ class Events_and_actions:
         """
         current_ltp_display = "{:.2f}".format(self.data_guy.current_ltp)
         current_pnl_string = "{:.2f}".format(self.data_guy.current_pnl)
+        sell_strike_low = "{:.2f}".format(self.sell_strike_low)
+        buy_strike_low = "{:.2f}".format(self.buy_strike_low)
+        buy_strike_high = "{:.2f}".format(self.buy_strike_high)
+        sell_strike_high = "{:.2f}".format(self.sell_strike_high)
 
         display_string = f"{current_ltp_display}\
             {current_pnl_string}\
-            "
-
-        if self.current_position is None:
-            display_string += f"-\
-                    o\
-                    -                                "
-        elif self.current_position == 'straddle':
-            display_string += f"{self.straddle_strike}\
-                    STRADDLE\
-                    {self.straddle_strike}\
-                        "
-        elif self.current_position == 'strangle':
-            display_string += f"{self.strangle_strike_low}\
-                    STRANGLE\
-                    {self.strangle_strike_high}\
-                        "
+            {sell_strike_low}\
+            {buy_strike_low}\
+            {buy_strike_high}\
+            {sell_strike_high}"
 
         return display_string
 
@@ -709,8 +700,15 @@ class Events_and_actions:
     
     @keep_log()
     def set_jump_size (self) -> timedelta:
-        
+
+
         if self.is_positioned & (not self.is_closed):
+            if not self.broker.is_active_day(self.data_guy.current_datetime):
+                next_active_day = self.broker.get_next_active_day(self.data_guy.current_datetime)
+                self.jump_size = datetime(next_active_day.year,
+                    next_active_day.month,
+                    next_active_day.day,9,15) - \
+                        self.data_guy.current_datetime
             if (self.data_guy.current_pnl - self.data_guy.total_loss_limit) / self.total_loss_limit <= .25:
                 self.jump_size = self.small_jump
             elif abs(self.data_guy.current_ltp - self.position_entry_ltp) / self.position_entry_ltp >= .02:
@@ -1216,19 +1214,21 @@ class Algo_manager:
                 broker_for_data,
                 per_trade_fee=0,
                 log_folder="logs",
-                begin_time=datetime(2020, 1, 1, 9, 28).time(), \
-                close_time=datetime(2020, 1, 1, 15, 7).time(), \
-                trailing_loss_trigger_per_lot=1_500,
-                max_trailing_loss_non_expiry_per_lot=-250,
-                max_trailing_loss_expiry_per_lot = -200,
-                total_loss_limit_per_lot=-1_500,
-                candle_length=5,
+                entry_datetime=datetime(2020, 1, 1, 15, 15).time(), \
+                exit_datetime=datetime(2020, 1, 1, 15, 7).time(), \
+                ltp_to_position_distance = .3,
+                underlying_max_movement = .5,
+                trailing_loss_limit_per_lot = -500,
+                total_loss_limit_per_lot=-10_000,
+                trailing_loss_trigger_point_per_lot = 5_000,
                 quantity_per_lot = 50,
                 lots_traded = 1,
+                options_step_size = 50,
+                big_jump = timedelta(minutes=5),
+                small_jump = timedelta(seconds=.1),
+                is_jumping = False,
                 broker_connection_loss = None,
                 exchange_connection_loss = None,
-                non_expiry_day_no_candle_time = datetime(2020, 1, 1, 14, 30).time(),
-                expiry_day_no_candle_time = datetime(2020, 1, 1, 13, 0).time(),
                 kite_api_key=None, kite_access_token=None,
                 kotak_consumer_key=None, kotak_access_token=None,
                 kotak_consumer_secret=None, kotak_user_id=None,
@@ -1296,16 +1296,18 @@ class Algo_manager:
         trade_quantity = quantity_per_lot * lots_traded
         
         #set loss parameters for total lots
-        max_trailing_loss_non_expiry = max_trailing_loss_non_expiry_per_lot * lots_traded
-        max_trailing_loss_expiry = max_trailing_loss_expiry_per_lot * lots_traded
+        
         total_loss_limit = total_loss_limit_per_lot * lots_traded
-        trailing_loss_trigger = trailing_loss_trigger_per_lot * lots_traded
+        trailing_loss_trigger_point = trailing_loss_trigger_point_per_lot * lots_traded
+        trailing_loss_limit = trailing_loss_limit_per_lot * lots_traded
+
 
         #Initiating all objects Broker, data_guy, events_andactions and trader
         self.broker = Broker()
         self.data_guy = Data_guy()
         self.events_and_actions = Events_and_actions()
         self.trader = Trader()
+        self.is_jumping = is_jumping
 
         #recall the global logger1
         global logger1
@@ -1346,21 +1348,22 @@ class Algo_manager:
             trader=self.trader,
             underlying_name=underlying_name, \
             current_datetime=current_datetime,
-            candle_length=candle_length,
-            events_and_actions = self.events_and_actions)
+            options_step_size=options_step_size)
 
         #setting parameters for events_and_action
         self.events_and_actions.set_parameters( \
             data_guy=self.data_guy, \
-            begin_time=begin_time, \
-            close_time=close_time, \
+            broker=self.broker, \
+            entry_datetime=entry_datetime, \
+            exit_datetime=exit_datetime, \
+            ltp_to_position_distance = ltp_to_position_distance,
+            underlying_max_movement=underlying_max_movement,
             total_loss_limit=total_loss_limit,
+            trailing_loss_trigger_point = trailing_loss_trigger_point,
             trade_quantity=trade_quantity, \
-            trailing_loss_trigger=trailing_loss_trigger,
-            max_trailing_loss_non_expiry=max_trailing_loss_non_expiry,
-            max_trailing_loss_expiry=max_trailing_loss_expiry,
-            non_expiry_day_no_candle_time = non_expiry_day_no_candle_time,
-            expiry_day_no_candle_time = expiry_day_no_candle_time,
+            trailing_loss_limit=trailing_loss_limit,
+            big_jump=big_jump,
+            small_jump=small_jump,
             trader=self.trader
         )
 
@@ -1392,5 +1395,13 @@ class Algo_manager:
         self.events_and_actions.events_to_actions(
                 current_datetime=current_datetime,
                 initiation_time=initiation_time)
+
+        #Step 3: Get jump time from events and actions
+        if self.is_jumping:
+            jump_size = self.events_and_actions.set_jump_size()
+        else:
+            jump_size = timedelta(seconds=0)
+
+        return jump_size
 
 
