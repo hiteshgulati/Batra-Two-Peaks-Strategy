@@ -69,8 +69,8 @@ def execute_algo (**kwargs):
         big_jump = timedelta(minutes=5),
         small_jump = timedelta(seconds=.1),
         is_jumping = kwargs['is_jumping'],
-        ltp_to_position_distance = .3,
-        underlying_max_movement = .5,
+        ltp_to_position_distance = .03,
+        underlying_max_movement = .05,
         lots_traded = kwargs['lots_traded'],
         total_loss_limit_per_lot = -10_000,
         trailing_loss_limit_per_lot = -500,
@@ -88,7 +88,7 @@ def execute_algo (**kwargs):
     else: 
         current_datetime = datetime.now()
 
-    while current_datetime.time() <= kwargs['switch_off_time']:
+    while current_datetime <= kwargs['switch_off_time']:
         if current_datetime.time() > datetime(2021,5,17,15,30).time():
             current_datetime = current_datetime + timedelta (hours=17,minutes=40)
         initiation_time = perf_counter()
@@ -102,7 +102,8 @@ def execute_algo (**kwargs):
         
         if kwargs['broker_for_data'].upper() == 'SIM':
             slippage = perf_counter() - initiation_time
-
+            if jump_size is None:
+                jump_size = timedelta(seconds=0)
             current_datetime = current_datetime \
                 + timedelta(\
                     seconds=(slippage+\
@@ -129,9 +130,9 @@ if __name__ == '__main__':
 
     #For Simulation
     day_start_datetime = datetime(2021,5,17,9,15)
-    entry_datetime = datetime(2021,5,17,15,15).time()
-    exit_datetime = datetime(2021,5,20,15,20).time()
-    switch_off_time =    datetime(2021,5,19,15,27).time()
+    entry_datetime = datetime(2021,5,17,10,15)
+    exit_datetime = datetime(2021,5,20,15,20)
+    switch_off_time =    datetime(2021,5,20,15,27)
 
     # For Live Paper trade
     # day_start_datetime = None
@@ -177,8 +178,8 @@ if __name__ == '__main__':
     equity_folder_name = 'Equity'
 
     execute_algo (day_start_datetime=day_start_datetime,
-        trading_start_time=entry_datetime,
-        trading_close_time = exit_datetime,
+        entry_datetime=entry_datetime,
+        exit_datetime = exit_datetime,
         switch_off_time = switch_off_time,
         is_kite_access_token_available = is_kite_access_token_available,
         kite_request_token = kite_request_token,
@@ -195,4 +196,4 @@ if __name__ == '__main__':
         equity_folder_name = equity_folder_name,
         broker_connection_loss = broker_connection_loss,
         exchange_connection_loss = exchange_connection_loss,
-        is_jumping = False)
+        is_jumping = True)

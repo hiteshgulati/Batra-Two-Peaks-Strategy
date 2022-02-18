@@ -1257,7 +1257,6 @@ class Exchange:
 
         self.tick_book = pd.DataFrame()
         for equity_file_path, fno_file_path in zip (equity_file_paths,fno_file_paths):
-            print(fno_file_path)
             day_tick_book = pd.concat(map(pd.read_csv,[fno_file_path,equity_file_path]))
 
 

@@ -343,7 +343,7 @@ class Data_guy:
             'trailing_pnl': self.trailing_pnl,
             'current_ltp': self.current_ltp, \
             'expiry_datetime': self.expiry_datetime, \
-            'entry_ltp': self.events_and_actions.entry_ltp, \
+            'position_entry_ltp': self.events_and_actions.position_entry_ltp, \
             'is_closed': self.events_and_actions.is_closed,
             'is_expiry_day':self.is_expiry_day,\
             'is_broker_working':self.is_broker_working}, \
@@ -613,6 +613,8 @@ class Events_and_actions:
         self.trader = trader
         self.broker = broker
 
+        logger1.log(info="Events and Actions Initiated")
+
 
     @keep_log()
     def display_string(self):
@@ -622,12 +624,23 @@ class Events_and_actions:
         Returns:
             str: string to represent LTP and current position
         """
-        current_ltp_display = "{:.2f}".format(self.data_guy.current_ltp)
-        current_pnl_string = "{:.2f}".format(self.data_guy.current_pnl)
-        sell_strike_low = "{:.2f}".format(self.sell_strike_low)
-        buy_strike_low = "{:.2f}".format(self.buy_strike_low)
-        buy_strike_high = "{:.2f}".format(self.buy_strike_high)
-        sell_strike_high = "{:.2f}".format(self.sell_strike_high)
+        logger1.log(current_ltp=self.data_guy.current_ltp,current_pnl=self.data_guy.current_pnl,
+            sell_strike_low=self.sell_strike_low,
+            buy_strike_low=self.buy_strike_low,
+            buy_strike_high=self.buy_strike_high,
+            sell_strike_high=self.sell_strike_high)
+        current_ltp_display = "{:.0f}".format(self.data_guy.current_ltp)
+        current_pnl_string = "{:.0f}".format(self.data_guy.current_pnl)
+        try:
+            sell_strike_low = "{:.2f}".format(self.sell_strike_low)
+            buy_strike_low = "{:.2f}".format(self.buy_strike_low)
+            buy_strike_high = "{:.2f}".format(self.buy_strike_high)
+            sell_strike_high = "{:.2f}".format(self.sell_strike_high)
+        except:
+            sell_strike_low = ""
+            buy_strike_low = ""
+            buy_strike_high = ""
+            sell_strike_high = ""
 
         display_string = f"{current_ltp_display}\
             {current_pnl_string}\
@@ -700,21 +713,25 @@ class Events_and_actions:
     
     @keep_log()
     def set_jump_size (self) -> timedelta:
+        self.jump_size = self.big_jump
+        if not self.broker.is_active_day(self.data_guy.current_datetime):
+            next_active_day = self.broker.get_next_active_day(self.data_guy.current_datetime)
+            logger1.log(next_active_day = next_active_day)
+            self.jump_size = datetime(next_active_day.year,
+                next_active_day.month,
+                next_active_day.day,9,15) - \
+                    self.data_guy.current_datetime
 
-
-        if self.is_positioned & (not self.is_closed):
-            if not self.broker.is_active_day(self.data_guy.current_datetime):
-                next_active_day = self.broker.get_next_active_day(self.data_guy.current_datetime)
-                self.jump_size = datetime(next_active_day.year,
-                    next_active_day.month,
-                    next_active_day.day,9,15) - \
-                        self.data_guy.current_datetime
-            if (self.data_guy.current_pnl - self.data_guy.total_loss_limit) / self.total_loss_limit <= .25:
+        elif self.is_positioned & (not self.is_closed):    
+            if (self.data_guy.current_pnl + self.total_loss_limit) / self.total_loss_limit <= .25:
+                logger1.log(current_pnl=self.data_guy.current_pnl,total_loss_limit=self.total_loss_limit)
                 self.jump_size = self.small_jump
             elif abs(self.data_guy.current_ltp - self.position_entry_ltp) / self.position_entry_ltp >= .02:
+                logger1.log(current_ltp=self.data_guy.current_ltp,position_entry_ltp=self.position_entry_ltp)
                 self.jump_size = self.small_jump
             elif self.data_guy.max_pnl >= self.trailing_loss_trigger_point:
-                if (self.data_guy.trailing_pnl - self.trailing_loss_limit) / self.trailing_loss_limit <= .5:
+                if (self.data_guy.trailing_pnl + self.trailing_loss_limit) / self.trailing_loss_limit <= .5:
+                    logger1.log(max_pnl=self.data_guy.max_pnl,trailing_loss_trigger_point=self.trailing_loss_trigger_point,trailing_pnl = self.data_guy.trailing_pnl,trailing_loss_limit=self.trailing_loss_limit)
                     self.jump_size = self.small_jump
         
         return self.jump_size
@@ -724,7 +741,7 @@ class Events_and_actions:
     def event_total_loss_reached (self) -> boolean:
         output = False
         if self.is_positioned & (not self.is_closed):
-            if self.total_loss_limit <= self.data_guy.current_pnl:
+            if self.data_guy.current_pnl <= self.total_loss_limit:
                 output = True
         return output
 
@@ -733,7 +750,7 @@ class Events_and_actions:
     def event_underlying_movement_exceeded (self) -> boolean:
         output = False
         if self.is_positioned & (not self.is_closed):
-            if abs(self.data_guy.current_ltp - self.entry_ltp) >= \
+            if abs(self.data_guy.current_ltp - self.position_entry_ltp) >= \
                 abs(self.underlying_max_movement * self.position_entry_ltp):
                 output = True
         return output
@@ -815,12 +832,12 @@ class Events_and_actions:
             fno_df['instrument_ltp'] = instrument_ltp
 
         sell_strike_high_ltp = fno_df[fno_df['call_put']=='CE']['instrument_ltp'].iloc[0]
-        sell_strike_low_ltp = fno_df[fno_df['call_put']=='CE']['instrument_ltp'].iloc[0]
+        sell_strike_low_ltp = fno_df[fno_df['call_put']=='PE']['instrument_ltp'].iloc[0]
 
         self.buy_strike_high, _ = self.trader.strike_discovery(
                         underlying=self.data_guy.underlying_name,
                         call_put='CE', expiry_datetime=self.data_guy.expiry_datetime,
-                        based_on_value='price', value=sell_strike_high_ltp,
+                        based_on_value='price', value=sell_strike_high_ltp*2,
                         current_datetime=current_datetime,
                         initiation_time=initiation_time)
 
@@ -837,7 +854,7 @@ class Events_and_actions:
         self.buy_strike_low, _ = self.trader.strike_discovery(
                         underlying=self.data_guy.underlying_name,
                         call_put='PE', expiry_datetime=self.data_guy.expiry_datetime,
-                        based_on_value='price', value=sell_strike_low_ltp,
+                        based_on_value='price', value=sell_strike_low_ltp*2,
                         current_datetime=current_datetime,
                         initiation_time=initiation_time)
 
@@ -879,6 +896,7 @@ class Events_and_actions:
             #Update Variable to indicate change in state
             self.position_entry_ltp = self.data_guy.current_ltp
             self.is_positioned = True
+            output = True
 
         return output
 
@@ -970,6 +988,8 @@ class Trader:
         self.current_positionbook = pd.DataFrame()
         self.per_trade_fee = per_trade_fee
         self.total_trade_fee = 0
+
+        logger1.log(info="Trader Initiated")
 
 
     @keep_log(default_return=False)
@@ -1346,6 +1366,7 @@ class Algo_manager:
         self.data_guy.set_parameters( \
             broker=self.broker, \
             trader=self.trader,
+            events_and_actions=self.events_and_actions,\
             underlying_name=underlying_name, \
             current_datetime=current_datetime,
             options_step_size=options_step_size)
@@ -1354,6 +1375,7 @@ class Algo_manager:
         self.events_and_actions.set_parameters( \
             data_guy=self.data_guy, \
             broker=self.broker, \
+            trader=self.trader,\
             entry_datetime=entry_datetime, \
             exit_datetime=exit_datetime, \
             ltp_to_position_distance = ltp_to_position_distance,
@@ -1363,8 +1385,7 @@ class Algo_manager:
             trade_quantity=trade_quantity, \
             trailing_loss_limit=trailing_loss_limit,
             big_jump=big_jump,
-            small_jump=small_jump,
-            trader=self.trader
+            small_jump=small_jump
         )
 
         #setting parameters for trader

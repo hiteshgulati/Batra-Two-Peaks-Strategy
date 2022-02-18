@@ -8,6 +8,7 @@
     // "python.linting.pylintUseMinimalCheckers": false,
     "cSpell.words": [
         "kotak",
+        "OHLC",
         "pyvollib",
         "Zerodha"
     ]
