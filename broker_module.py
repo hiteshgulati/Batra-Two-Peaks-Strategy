@@ -1142,7 +1142,7 @@ class Broker:
             return current_datetime
         elif self.broker_for_data == 'SIM':
             next_date = self.sim.active_dates[\
-                np.where(self.sim.active_dates>=current_datetime)][0]
+                np.where(self.sim.active_dates>=current_datetime.date())][0]
             return next_date
 
     

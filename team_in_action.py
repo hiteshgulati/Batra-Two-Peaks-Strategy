@@ -129,10 +129,10 @@ def execute_algo (**kwargs):
 if __name__ == '__main__':
 
     #For Simulation
-    day_start_datetime = datetime(2021,5,17,9,15)
-    entry_datetime = datetime(2021,5,17,10,15)
-    exit_datetime = datetime(2021,5,20,15,20)
-    switch_off_time =    datetime(2021,5,20,15,27)
+    day_start_datetime = datetime(2021,5,21,15,10)
+    entry_datetime = datetime(2021,5,21,15,15)
+    exit_datetime = datetime(2021,5,27,15,20)
+    switch_off_time =    datetime(2021,5,27,15,27)
 
     # For Live Paper trade
     # day_start_datetime = None
