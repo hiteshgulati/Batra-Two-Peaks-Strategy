@@ -36,8 +36,8 @@ def execute_algo (**kwargs):
         with open (file_path, "w") as outfile:
             json.dump(broker_secret,outfile)
 
-    logs_folder_path = kwargs['log_folder_name']
-    # logs_folder_path = os.path.join(parent,kwargs['log_folder_name'])
+    # logs_folder_path = kwargs['log_folder_name']
+    logs_folder_path = os.path.join(parent,kwargs['log_folder_name'])
 
     if kwargs['broker_for_data'].upper() == 'SIM':
         current_datetime = kwargs['day_start_datetime']
@@ -66,8 +66,8 @@ def execute_algo (**kwargs):
         exit_datetime=kwargs['exit_datetime'],
         quantity_per_lot = 50,
         options_step_size = 50,
-        big_jump = timedelta(minutes=5),
-        small_jump = timedelta(seconds=.1),
+        big_jump = timedelta(minutes=10),
+        small_jump = timedelta(minutes=1),
         is_jumping = kwargs['is_jumping'],
         ltp_to_position_distance = .03,
         underlying_max_movement = .05,
@@ -90,7 +90,7 @@ def execute_algo (**kwargs):
 
     while current_datetime <= kwargs['switch_off_time']:
         if current_datetime.time() > datetime(2021,5,17,15,30).time():
-            current_datetime = current_datetime + timedelta (hours=17,minutes=40)
+            current_datetime = current_datetime + timedelta (hours=17,minutes=45)
         initiation_time = perf_counter()
         jump_size = algo_manager.action(current_datetime=current_datetime,
             initiation_time = initiation_time)
@@ -129,9 +129,9 @@ def execute_algo (**kwargs):
 if __name__ == '__main__':
 
     #For Simulation
-    day_start_datetime = datetime(2021,5,21,15,10)
-    entry_datetime = datetime(2021,5,21,15,15)
-    exit_datetime = datetime(2021,5,27,15,20)
+    day_start_datetime = datetime(2021,5,21,9,15)
+    entry_datetime = datetime(2021,5,21,9,30)
+    exit_datetime = datetime(2021,5,27,15,15)
     switch_off_time =    datetime(2021,5,27,15,27)
 
     # For Live Paper trade
@@ -148,7 +148,6 @@ if __name__ == '__main__':
 
     log_folder_name = 'logs'
 
-    candle_length = 5
     per_trade_fee = -20
     lots_traded = 1
     underlying_name = 'NIFTY'
