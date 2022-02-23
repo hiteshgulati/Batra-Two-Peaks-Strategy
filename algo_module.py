@@ -731,7 +731,10 @@ class Events_and_actions:
                 self.jump_size = self.small_jump
             elif self.data_guy.max_pnl >= self.trailing_loss_trigger_point:
                 if (self.data_guy.trailing_pnl + self.trailing_loss_limit) / self.trailing_loss_limit <= .5:
-                    logger1.log(max_pnl=self.data_guy.max_pnl,trailing_loss_trigger_point=self.trailing_loss_trigger_point,trailing_pnl = self.data_guy.trailing_pnl,trailing_loss_limit=self.trailing_loss_limit)
+                    logger1.log(max_pnl=self.data_guy.max_pnl,
+                        trailing_loss_trigger_point=self.trailing_loss_trigger_point,
+                        trailing_pnl = self.data_guy.trailing_pnl,
+                        trailing_loss_limit=self.trailing_loss_limit)
                     self.jump_size = self.small_jump
         
         return self.jump_size
