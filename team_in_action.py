@@ -36,8 +36,8 @@ def execute_algo (**kwargs):
         with open (file_path, "w") as outfile:
             json.dump(broker_secret,outfile)
 
-    # logs_folder_path = kwargs['log_folder_name']
-    logs_folder_path = os.path.join(parent,kwargs['log_folder_name'])
+    logs_folder_path = kwargs['log_folder_name']
+    # logs_folder_path = os.path.join(parent,kwargs['log_folder_name'])
 
     if kwargs['broker_for_data'].upper() == 'SIM':
         current_datetime = kwargs['day_start_datetime']
@@ -70,7 +70,7 @@ def execute_algo (**kwargs):
         small_jump = timedelta(minutes=1),
         is_jumping = kwargs['is_jumping'],
         ltp_to_position_distance = .03,
-        underlying_max_movement = .05,
+        underlying_max_movement = .7,
         lots_traded = kwargs['lots_traded'],
         total_loss_limit_per_lot = -10_000,
         trailing_loss_limit_per_lot = -500,

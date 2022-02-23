@@ -753,10 +753,32 @@ class Events_and_actions:
     def event_underlying_movement_exceeded (self) -> boolean:
         output = False
         if self.is_positioned & (not self.is_closed):
-            if abs(self.data_guy.current_ltp - self.position_entry_ltp) >= \
-                abs(self.underlying_max_movement * self.position_entry_ltp):
+            low_exit_point = self.buy_strike_low * (1-self.underlying_max_movement) \
+                    + self.sell_strike_low * self.underlying_max_movement
+            high_exit_point = self.buy_strike_high * (1-self.underlying_max_movement) \
+                    + self.sell_strike_high * self.underlying_max_movement
+            if (self.data_guy.current_ltp <= low_exit_point) | \
+                (self.data_guy.current_ltp >= high_exit_point):
                 output = True
         return output
+
+    # @keep_log()
+    # def event_underlying_movement_exceeded (self) -> boolean:
+    #     output = False
+    #     if self.is_positioned & (not self.is_closed):
+    #         if (self.data_guy.current_ltp <= self.buy_strike_low) | \
+    #             (self.data_guy.current_ltp >= self.buy_strike_high):
+    #             output = True
+    #     return output
+
+    # @keep_log()
+    # def event_underlying_movement_exceeded (self) -> boolean:
+    #     output = False
+    #     if self.is_positioned & (not self.is_closed):
+    #         if abs(self.data_guy.current_ltp - self.position_entry_ltp) >= \
+    #             abs(self.underlying_max_movement * self.position_entry_ltp):
+    #             output = True
+    #     return output
 
 
     @keep_log()
